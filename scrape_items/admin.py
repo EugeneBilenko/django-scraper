@@ -94,7 +94,7 @@ class ItemsToScrapeAdmin(ImportExportModelAdmin):
     model = ItemsToScrape
     list_display = ['id', 'catalog_number', 'web_price']
     actions = ['execute_crawler', ]
-    list_per_page = 5000
+    list_per_page = 500
 
     def execute_crawler(self, request, queryset):
         if not settings.PROXIES_LIST:
@@ -168,6 +168,8 @@ class ScrapedItemsAdmin(ImportExportModelAdmin):
         'get_its_id',
         'get_its_catalog_number',
     ]
+
+    list_per_page = 500
 
     def prepare_link(self, obj):
         if obj.url:
