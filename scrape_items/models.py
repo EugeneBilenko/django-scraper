@@ -5,7 +5,6 @@ import django_tables2 as tables
 
 class ItemsToScrape(models.Model):
     id = models.BigIntegerField(primary_key=True)
-    brand = models.IntegerField(default=0)
     catalog_number = models.CharField(max_length=25, null=True, default=None)
     web_price = models.FloatField(default=0.0)
 
@@ -17,7 +16,7 @@ class ItemsToScrape(models.Model):
 class ScrapedItems(models.Model):
     iid = models.BigIntegerField(blank=True, null=True)
     url = models.CharField(max_length=128, null=True, default=None)
-    scrape_date_time = models.DateTimeField(auto_now_add=True, blank=True)
+    scrape_date_time = models.DateTimeField(auto_now=True, blank=True)
     suggested = models.CharField(max_length=25, null=True, default=None)
     list_price = models.FloatField(default=0.0, blank=True, null=True)
     price = models.FloatField(default=0.0, blank=True, null=True)

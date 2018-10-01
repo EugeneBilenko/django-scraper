@@ -1,6 +1,8 @@
+from concurrent.futures import ProcessPoolExecutor
 import json
 import random
 import requests
+from bs4 import BeautifulSoup
 from django.conf.urls import url
 from django.contrib import admin
 from django.contrib.admin.templatetags.admin_static import static
@@ -14,63 +16,93 @@ from django.conf import settings
 from rangefilter.filter import DateRangeFilter, DateTimeRangeFilter
 
 
+def get_ua():
+    return dict({'User-Agent': random.choice(settings.USER_AGENTS)})
+
+
+def get_proxies_list():
+    page = requests.get(settings.PROXIES_SOURCE, headers=get_ua())
+    soup = BeautifulSoup(page.text, 'html.parser')
+    tbody = soup.find('tbody')
+    td = tbody.findAll('td')
+    for x in range(0, len(td), 8):
+        ip = td[x].text
+        port = td[x + 1].text
+        https = td[x + 6].text.lower()
+        protocol = 'https' if https == 'yes' else 'http'
+        settings.PROXIES_LIST.update(
+            {protocol: '{protocol}://{ip}:{port}'.format(
+                protocol=protocol,
+                ip=ip,
+                port=port
+            )}
+        )
+
+
+def process_one_item(item):
+    fields = dict()
+    response = requests.request(
+        'GET',
+        settings.PARSING_URL.format(rsq=item.catalog_number),
+        headers=get_ua(),
+        proxies=settings.PROXIES_LIST
+    )
+    if response.status_code == 200:
+        json_response = json.loads(response.content)
+
+    found = json_response.get('FOUND', None)
+    if found:
+        r = json_response.get('RESULTS', None)
+        if r:
+            for r_item in r:
+                fields.update({
+                    'iid': r_item.get('ID', None),
+                    'url': r_item.get('URL', None),
+                    'list_price': r_item.get('LIST_PRICE', None),
+                    'price': r_item.get('PRICE', None),
+                    'wholesale_price': r_item.get('WHOLESALE_PRICE', None),
+                    'image_small': r_item.get('IMAGE_SMALL', None),
+                    'image_large': r_item.get('IMAGE_LARGE', None),
+                    'title': r_item.get('TITLE', None),
+                    'category_discount': r_item.get('CATEGORY_DISCOUNT', None),
+                    'its': item
+                })
+    else:
+        suggested = json_response.get('SUGGESTED', None)
+        if suggested:
+            fields.update({
+                'iid': json_response.get('ID', None),
+                'suggested': json_response.get('SUGGESTED', None),
+                'its': item
+            })
+        else:
+            fields.update({
+                'iid': json_response.get('ID', None),
+                'its': item
+            })
+
+    if fields:
+        obj, created = ScrapedItems.objects.update_or_create(**fields)
+        return created
+
+    return None
+
+
 @admin.register(ItemsToScrape)
 class ItemsToScrapeAdmin(ImportExportModelAdmin):
 
     model = ItemsToScrape
-    list_display = ['id', 'brand', 'catalog_number', 'web_price']
+    list_display = ['id', 'catalog_number', 'web_price']
     actions = ['execute_crawler', ]
+    list_per_page = 5000
 
     def execute_crawler(self, request, queryset):
-        for item in queryset:
-            fields = dict()
-            response = requests.request(
-                'GET',
-                settings.PARSING_URL.format(rsq=item.catalog_number),
-                headers=self.get_ua()
-            )
-            if response.status_code == 200:
-                json_response = json.loads(response.content)
-
-            found = json_response.get('FOUND', None)
-            if found:
-                r = json_response.get('RESULTS', None)
-                if r:
-                    for r_item in r:
-                        fields.update({
-                            'iid': r_item.get('ID', None),
-                            'url': r_item.get('URL', None),
-                            'list_price': r_item.get('LIST_PRICE', None),
-                            'price': r_item.get('PRICE', None),
-                            'wholesale_price': r_item.get('WHOLESALE_PRICE', None),
-                            'image_small': r_item.get('IMAGE_SMALL', None),
-                            'image_large': r_item.get('IMAGE_LARGE', None),
-                            'title': r_item.get('TITLE', None),
-                            'category_discount': r_item.get('CATEGORY_DISCOUNT', None),
-                            'its': item
-                        })
-            else:
-                suggested = json_response.get('SUGGESTED', None)
-                if suggested:
-                    fields.update({
-                        'iid': json_response.get('ID', None),
-                        'suggested': json_response.get('SUGGESTED', None),
-                        'its': item
-                    })
-                else:
-                    fields.update({
-                        'iid': json_response.get('ID', None),
-                        'its': item
-                    })
-
-            if fields:
-                obj, created = ScrapedItems.objects.update_or_create(**fields)
+        if not settings.PROXIES_LIST:
+            get_proxies_list()
+        with ProcessPoolExecutor() as executor:
+            executor.map(process_one_item, queryset)
 
     execute_crawler.short_description = 'Execute Crawler (for selected objects)'
-
-    @staticmethod
-    def get_ua():
-        return dict({'User-Agent': random.choice(settings.USER_AGENTS)})
 
     def get_urls(self):
         urls = super(ItemsToScrapeAdmin, self).get_urls()

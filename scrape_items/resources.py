@@ -6,7 +6,7 @@ class ItemsToScrapeResource(resources.ModelResource):
 
     class Meta:
         model = ItemsToScrape
-        fields = ('id', 'brand', 'catalog_number', 'web_price',)
+        fields = ('id', 'catalog_number', 'web_price',)
 
 
 class ScrapedItemsResource(resources.ModelResource):
